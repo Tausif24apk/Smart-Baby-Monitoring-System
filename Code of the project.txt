@@ -1,0 +1,391 @@
+#include <SPI.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_ST7735.h>
+#include "DHT.h"
+
+// =====================================================
+// PIN DEFINITIONS
+// =====================================================
+
+// DHT22
+#define DHT_PIN 16
+#define DHT_TYPE DHT22
+
+// Soil sensor - ANALOG OUTPUT (AO)
+#define SOIL_PIN 33
+
+// IR sensor
+#define IR_PIN 27
+
+// Sound sensor - ANALOG OUTPUT (AO)
+#define SOUND_PIN 25
+
+// Buzzer
+#define BUZZER_PIN 19
+
+// Relay
+#define RELAY_PIN 14
+
+// Joystick
+#define VRX_PIN 34
+#define VRY_PIN 35
+#define SW_PIN 32
+
+// TFT
+#define TFT_CS 5
+#define TFT_DC 2
+#define TFT_RST 22
+
+// =====================================================
+// SETTINGS
+// =====================================================
+
+// Soil threshold
+// Change this after checking your raw dry/wet values.
+#define SOIL_THRESHOLD 2500
+
+// Fan temperature threshold
+#define FAN_TEMPERATURE 28.0
+
+// Relay is assumed ACTIVE LOW
+#define RELAY_ON LOW
+#define RELAY_OFF HIGH
+
+// =====================================================
+// OBJECTS
+// =====================================================
+
+DHT dht(DHT_PIN, DHT_TYPE);
+
+Adafruit_ST7735 tft = Adafruit_ST7735(
+  TFT_CS,
+  TFT_DC,
+  TFT_RST
+);
+
+// =====================================================
+// SETUP
+// =====================================================
+
+void setup() {
+
+  Serial.begin(115200);
+
+  // DHT22
+  dht.begin();
+
+  // Sensors
+  pinMode(SOIL_PIN, INPUT);
+  pinMode(IR_PIN, INPUT);
+  pinMode(SOUND_PIN, INPUT);
+
+  // Buzzer
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
+
+  // Relay
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, RELAY_OFF);
+
+  // Joystick
+  pinMode(SW_PIN, INPUT_PULLUP);
+
+  // TFT
+  tft.initR(INITR_BLACKTAB);
+  tft.setRotation(1);
+  tft.fillScreen(ST77XX_BLACK);
+
+  // Startup screen
+  tft.setTextColor(ST77XX_WHITE);
+  tft.setTextSize(2);
+
+  tft.setCursor(10, 20);
+  tft.println("SMART");
+
+  tft.setCursor(10, 45);
+  tft.println("BABY MONITOR");
+
+  delay(2000);
+
+  tft.fillScreen(ST77XX_BLACK);
+
+  Serial.println();
+  Serial.println("================================");
+  Serial.println(" SMART BABY MONITOR");
+  Serial.println(" SYSTEM STARTED");
+  Serial.println("================================");
+}
+
+// =====================================================
+// LOOP
+// =====================================================
+
+void loop() {
+
+  // ===================================================
+  // DHT22
+  // ===================================================
+
+  float temperature = dht.readTemperature();
+  float humidity = dht.readHumidity();
+
+  // ===================================================
+  // SOIL SENSOR
+  // ===================================================
+
+  int soilValue = analogRead(SOIL_PIN);
+
+  String soilStatus;
+
+  if (soilValue > SOIL_THRESHOLD) {
+    soilStatus = "DRY";
+  }
+  else {
+    soilStatus = "WET";
+  }
+
+  // ===================================================
+  // IR SENSOR
+  // ===================================================
+
+  int irValue = digitalRead(IR_PIN);
+
+  String handStatus;
+
+  // Your individual test:
+  // LOW = hand detected
+  // HIGH = no hand
+
+  if (irValue == LOW) {
+    handStatus = "YES";
+  }
+  else {
+    handStatus = "NO";
+  }
+
+  // ===================================================
+  // SOUND SENSOR
+  // ===================================================
+
+  int soundValue = analogRead(SOUND_PIN);
+
+  String soundStatus;
+
+  if (soundValue <= 1000) {
+    soundStatus = "QUIET";
+  }
+  else if (soundValue <= 2000) {
+    soundStatus = "NORMAL";
+  }
+  else {
+    soundStatus = "LOUD";
+  }
+
+  // ===================================================
+  // FAN CONTROL
+  // ===================================================
+
+  bool fanStatus = false;
+
+  if (!isnan(temperature)) {
+
+    if (temperature > FAN_TEMPERATURE) {
+
+      // Temperature greater than 28 C
+      // Fan ON
+      digitalWrite(RELAY_PIN, RELAY_ON);
+
+      fanStatus = true;
+    }
+    else {
+
+      // Temperature 28 C or below
+      // Fan OFF
+      digitalWrite(RELAY_PIN, RELAY_OFF);
+
+      fanStatus = false;
+    }
+  }
+  else {
+
+    // DHT error -> fan OFF
+    digitalWrite(RELAY_PIN, RELAY_OFF);
+
+    fanStatus = false;
+  }
+
+  // ===================================================
+  // BUZZER
+  // ===================================================
+
+  // Buzzer ON when sound is loud
+  if (soundValue > 2000) {
+    digitalWrite(BUZZER_PIN, HIGH);
+  }
+  else {
+    digitalWrite(BUZZER_PIN, LOW);
+  }
+
+  // ===================================================
+  // JOYSTICK
+  // ===================================================
+
+  int joystickX = analogRead(VRX_PIN);
+  int joystickY = analogRead(VRY_PIN);
+  int joystickButton = digitalRead(SW_PIN);
+
+  // ===================================================
+  // SERIAL MONITOR
+  // ===================================================
+
+  Serial.println();
+  Serial.println("--------------------------------");
+
+  if (isnan(temperature)) {
+    Serial.println("Temperature : ERROR");
+  }
+  else {
+    Serial.print("Temperature : ");
+    Serial.print(temperature, 1);
+    Serial.println(" C");
+  }
+
+  if (isnan(humidity)) {
+    Serial.println("Humidity    : ERROR");
+  }
+  else {
+    Serial.print("Humidity    : ");
+    Serial.print(humidity, 1);
+    Serial.println(" %");
+  }
+
+  Serial.print("Soil Raw    : ");
+  Serial.println(soilValue);
+
+  Serial.print("Soil Status : ");
+  Serial.println(soilStatus);
+
+  Serial.print("Hand        : ");
+  Serial.println(handStatus);
+
+  Serial.print("Sound Raw   : ");
+  Serial.println(soundValue);
+
+  Serial.print("Sound       : ");
+  Serial.println(soundStatus);
+
+  Serial.print("Fan         : ");
+
+  if (fanStatus) {
+    Serial.println("ON");
+  }
+  else {
+    Serial.println("OFF");
+  }
+
+  Serial.print("Joystick X  : ");
+  Serial.println(joystickX);
+
+  Serial.print("Joystick Y  : ");
+  Serial.println(joystickY);
+
+  // ===================================================
+  // TFT DISPLAY
+  // ===================================================
+
+  tft.fillScreen(ST77XX_BLACK);
+
+  // ---------- Temperature ----------
+
+  tft.setTextSize(2);
+  tft.setTextColor(ST77XX_WHITE);
+
+  tft.setCursor(3, 3);
+  tft.print("T:");
+
+  if (isnan(temperature)) {
+    tft.print("ERROR");
+  }
+  else {
+    tft.print(temperature, 1);
+    tft.print("C");
+  }
+
+  // ---------- Humidity ----------
+
+  tft.setCursor(3, 25);
+  tft.print("H:");
+
+  if (isnan(humidity)) {
+    tft.print("ERROR");
+  }
+  else {
+    tft.print(humidity, 1);
+    tft.print("%");
+  }
+
+  // ---------- Soil ----------
+
+  tft.setCursor(3, 47);
+  tft.print("SOIL:");
+
+  if (soilStatus == "WET") {
+    tft.setTextColor(ST77XX_BLUE);
+    tft.print("WET");
+  }
+  else {
+    tft.setTextColor(ST77XX_RED);
+    tft.print("DRY");
+  }
+
+  // ---------- Hand ----------
+
+  tft.setTextColor(ST77XX_WHITE);
+
+  tft.setCursor(3, 69);
+  tft.print("HAND:");
+
+  if (handStatus == "YES") {
+    tft.setTextColor(ST77XX_GREEN);
+  }
+  else {
+    tft.setTextColor(ST77XX_WHITE);
+  }
+
+  tft.print(handStatus);
+
+  // ---------- Fan ----------
+
+  tft.setTextColor(ST77XX_WHITE);
+
+  tft.setCursor(3, 91);
+  tft.print("FAN:");
+
+  if (fanStatus) {
+    tft.setTextColor(ST77XX_GREEN);
+    tft.print("ON");
+  }
+  else {
+    tft.setTextColor(ST77XX_RED);
+    tft.print("OFF");
+  }
+
+  // ---------- Sound ----------
+
+  tft.setTextColor(ST77XX_WHITE);
+
+  tft.setCursor(3, 113);
+  tft.print("S:");
+
+  if (soundStatus == "LOUD") {
+    tft.setTextColor(ST77XX_RED);
+  }
+
+  tft.print(soundStatus);
+
+  // ===================================================
+  // LOOP DELAY
+  // ===================================================
+
+  delay(1000);
+}
